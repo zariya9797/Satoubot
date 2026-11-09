@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from telegram.error import BadRequest
 
 from satoubot.app import Bot
 from satoubot.discovery import Discovery, HDHUB
@@ -261,3 +262,46 @@ async def test_verified_mkv_survives_metadata_warning(tmp_path,monkeypatch):
     with pytest.warns(UserWarning,match='Metadata parser'):
         await bot.movie_card(context,key)
     assert 'mkv' in context.bot.send_message.await_args.kwargs['reply_markup'].inline_keyboard[0][0].text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('photo', [False, True])
+async def test_failed_card_update_does_not_hide_later_downloadable_link(tmp_path, monkeypatch, photo):
+    import io
+    store = Store(tmp_path/'db'); bot = Bot(store, tmp_path, 42, MagicMock())
+    movie = {'id':'tt1', 'name':'Example'}
+    if photo: movie['poster'] = 'https://image.test/poster.jpg'
+    manual_shown = asyncio.Event()
+    streams = [{'url':'https://wrapper.test/file', 'quality':'1080p'},
+               {'url':'https://direct.test/file', 'quality':'1080p'}]
+    monkeypatch.setattr(Discovery, 'details', AsyncMock(return_value=movie))
+    monkeypatch.setattr(Discovery, 'streams', AsyncMock(return_value=(streams, [])))
+    monkeypatch.setattr('satoubot.catalogue.landscape', AsyncMock(return_value=io.BytesIO(b'jpeg')))
+    async def check(url, headers):
+        if 'wrapper.test' in url:
+            return {'status':'manual', 'reason':'Provider page'}
+        await manual_shown.wait()
+        return {'status':'ready', 'size':3_799_555_945, 'filename':'movie.mkv', 'content_type':'video/x-matroska'}
+    monkeypatch.setattr('satoubot.catalogue.probe', check)
+    old_card = SimpleNamespace(
+        edit_text=AsyncMock(side_effect=BadRequest('Message to edit not found')),
+        edit_caption=AsyncMock(side_effect=BadRequest('Message to edit not found')),
+        delete=AsyncMock())
+    replacement = SimpleNamespace(edit_text=AsyncMock(), delete=AsyncMock())
+    sent = []
+    async def send(*args, **kwargs):
+        sent.append(kwargs['reply_markup'])
+        manual_shown.set()
+        return old_card if len(sent) == 1 else replacement
+    context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock(side_effect=send),
+                                                  send_photo=AsyncMock(side_effect=send)))
+    await asyncio.wait_for(bot.movie_card(context, store.cache('movie', movie)), 2)
+    assert sent[0].inline_keyboard[0][0].text.startswith('Manual ')
+    assert len(sent) == 2
+    button = sent[-1].inline_keyboard[0][0]
+    assert button.text.startswith('DW ') and 'mkv' in button.text
+    assert 'direct.test' in button.text
+    stream = store.cached(int(button.callback_data.split(':')[1]), 'stream')
+    assert stream['url'] == 'https://direct.test/file'
+    assert bot.panel().card is replacement
+    old_card.delete.assert_awaited_once()

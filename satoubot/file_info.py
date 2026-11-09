@@ -96,7 +96,7 @@ async def probe(url, headers=None):
             if status in (401,403): return {'status':'manual','reason':'Login, access restriction or hotlink block; manual download required'}
             if status in (404,410): return {'status':'unavailable','reason':'File not found'}
             if status==429 or status>=500: return _temporary(url,response_headers)
-            if status!=206: return {'status':'manual','reason':'Source did not provide a valid media range'}
+            if status!=206: return {'status':'manual','reason':f'Source returned HTTP {status} instead of a valid media range'}
             content_type=(response_headers.get('content-type') or head_headers.get('content-type') or '').lower()
             if 'mpegurl' in content_type or urlparse(final).path.lower().endswith('.m3u8'):
                 return {'status':'manual','reason':'HLS streaming playlist', 'hls_candidate':True}

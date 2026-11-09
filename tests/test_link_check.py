@@ -81,7 +81,7 @@ async def test_missing_and_temporary(transport,code,expected):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('status,content_type,body,reason',[(206,'text/html',b'<html>','Web page'),(403,'application/json',b'{"error":"file_rate_limited_captcha_required"}','Pixeldrain'),(401,'text/plain',b'login','Login'),(403,'text/plain',b'forbidden','Login')])
+@pytest.mark.parametrize('status,content_type,body,reason',[(206,'text/html',b'<html>','Web page'),(403,'application/json',b'{"error":"file_rate_limited_captcha_required"}','Pixeldrain'),(401,'text/plain',b'login','Login'),(403,'text/plain',b'forbidden','Login'),(400,'text/plain',b'error','HTTP 400')])
 async def test_blocked_pages_and_pixeldrain(transport,status,content_type,body,reason):
     handler,_=transport
     handler[0]=lambda req: httpx.Response(200) if req.method=='HEAD' else httpx.Response(status,headers={'content-type':content_type,'content-range':f'bytes 0-{len(body)-1}/{len(body)}'},content=body)

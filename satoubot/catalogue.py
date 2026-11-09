@@ -7,6 +7,7 @@ import re
 
 from telegram import (InlineKeyboardButton as Button, InlineKeyboardMarkup as Markup,
                       InlineQueryResultArticle, InputTextMessageContent)
+from telegram.error import BadRequest, TelegramError
 from .menu import navigation
 from .artwork import landscape
 from .media import reported_tracks, FORMATS, inspect_remote_media, track_summary
@@ -339,8 +340,14 @@ class CatalogueFunctions:
                     try:
                         if card_is_photo: await card.edit_caption(caption=caption, reply_markup=markup)
                         else: await card.edit_text(caption + '\nImage unavailable.', reply_markup=markup)
-                    except Exception:
-                        pass
+                    except TelegramError as exc:
+                        if not (isinstance(exc, BadRequest) and 'message is not modified' in str(exc).lower()):
+                            # Preserve newly checked files when Telegram can no longer edit the card.
+                            replacement = await context.bot.send_message(self.admin_id, caption, reply_markup=markup)
+                            old_card = card
+                            panel.card = card = replacement
+                            card_is_photo = False
+                            await self._retire_message(panel, old_card)
             last_update = time.monotonic()
 
         async def flush():
@@ -511,8 +518,9 @@ class CatalogueFunctions:
             size=stream.get('size'); size_text=f'{size/1_000_000:.1f} MB' if isinstance(size,(int,float)) else 'size unknown'
             action=('Unavailable' if stream.get('check_status') == 'unavailable' else 'Retry') if key < 0 else ('Torrent' if stream.get('torrent') else 'HLS' if stream.get('hls_candidate') else 'Manual' if stream.get('check_status') == 'manual' else ('Link' if isinstance(size,(int,float)) and size>MAX_DOWNLOAD_BYTES else ('DW' if size else 'Size unknown')))
             if action == 'DW' and sum(info['kind'] == 'download' for _, info in self.active_transfers()) >= 2: action = 'Wait (busy)'
-            quality=str(stream.get('quality') or stream.get('title') or stream.get('name') or 'quality unknown')[:65]
-            rows.append([Button(f'{action} {quality} | {size_text} | {stream.get("file_type","unknown")}'[:120],callback_data=f'{"retryfile" if key < 0 else "file"}:{abs(key)}')])
+            quality=str(stream.get('quality') or stream.get('title') or stream.get('name') or 'quality unknown')[:40]
+            host = (urlparse(stream['url']).hostname or ('torrent' if stream.get('torrent') else 'unknown host'))[:28]
+            rows.append([Button(f'{action} {quality} | {host} | {size_text} | {stream.get("file_type","unknown")}'[:120],callback_data=f'{"retryfile" if key < 0 else "file"}:{abs(key)}')])
         navigation=[]
         if page: navigation.append(Button('Previous',callback_data=f'page:{selection*1000+page-1}'))
         if (page+1)*4<len(choices):navigation.append(Button('More',callback_data=f'page:{selection*1000+page+1}'))
