@@ -54,7 +54,13 @@ Choose a file from your catalogues or send an HTTP(S) file URL. The confirmation
 
 HLS downloads still support finite, unencrypted TS/fMP4 playlists with embedded audio. Set output to **MKV** to remux the downloaded TS file into MKV. Separate audio/subtitle playlists, DRM, live streams, byte ranges, and discontinuities remain unsupported; no protection is bypassed. Completed local files are inspected again for embedded audio/subtitle languages and codecs.
 
-Choose **Download only** to retain the file on this server. The **Transfer** button uses the saved delivery default; **Download only** overrides it for that selection. Files at or below 2 GB can later enter Telegram review from **Saved files / links → Review Telegram upload**. **Convert format** is available from local files and upload review. The original is retained when producing a converted file. Existing output files are never overwritten. A fresh preview and individual approval are required for every Telegram upload. Files above 2 GB remain local; downloads/conversions are limited to 10 GB. Conversion can need space for both original and output.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:403ff218718b75358bf5290116efa0605f178202ead0c3eb2ec844ff7425990e -->
+
+Choose **Download only** to retain the file on this server. For direct files at or below 2 GB, **Transfer** uses the saved delivery default and **Download only** overrides it. Direct files above 2 GB and up to 10 GB offer **Download only** or **Give link**. Files at or below 2 GB can later enter Telegram review from **Saved files / links → Review Telegram upload**. **Convert format** is available from local files and upload review. The original is retained when producing a converted file. Existing output files are never overwritten. A fresh preview and individual approval are required for every Telegram upload. Downloads and conversions are limited to 10 GB; conversion can need space for both original and output.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ### Torrent files
 
@@ -489,7 +495,13 @@ File choices show four per page with More/Previous and Cancel. <!-- coderabbit-a
 
 <!-- coderabbit-ai-generated-section:v1:55c2434624d2efa149d30aa6a66e410355cd2feb41cb258d0bc0625777e59281 -->
 
-Select a **DW** or **HLS** button to review the source, then choose Transfer or Give link. Transfer starts a download after approval.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:446f4e0e21ea0722a5437f85ee541289730f103d42f5b2247021fc39bc7a65e6 -->
+
+Select a **DW** or **HLS** button to review the source. Choose **Transfer** or **Download only** to start a download after approval, or **Give link** to use the source manually. Direct files above 2 GB offer **Download only** and **Give link**.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 --> A separate approval is required before upload. <!-- coderabbit-ai-generated:v1 -->
 

@@ -202,7 +202,7 @@ async def test_direct_media_above_2gb_is_approved_and_saved_locally(tmp_path,mon
     update=SimpleNamespace(message=SimpleNamespace(reply_text=AsyncMock()))
     await bot.handle_source(update,'https://source.test/large.mkv')
     args=update.message.reply_text.await_args
-    assert 'saved locally' in args.args[0] and args.kwargs['reply_markup'].inline_keyboard[0][0].text=='Transfer'
+    assert 'saved locally' in args.args[0] and args.kwargs['reply_markup'].inline_keyboard[0][0].text=='Download only'
     job=store.find_source('https://source.test/large.mkv')
     store.update(job['id'],state='downloading')
     async def download(url,path,expected,progress,**kwargs):

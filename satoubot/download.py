@@ -67,7 +67,7 @@ class DownloadFunctions:
             if info.get('status') == 'temporary':
                 key=self.store.cache('direct_retry', {'url':text})
                 keyboard=InlineKeyboardMarkup([[InlineKeyboardButton('Retry check', callback_data=f'directretry:{key}'), InlineKeyboardButton('Give link', callback_data=f'directmanual:{manual}')], navigation()])
-            await self.show_panel(update.message, f"{reason}." + (f" Retry after {retry}." if retry else ''), reply_markup=keyboard)
+            await self.show_panel(update.message, f"{reason}." + (f" Retry after {retry}." if retry else '') + ' Use Give link to try it manually.', reply_markup=keyboard)
             return
         size, content_type=info['size'],info.get('content_type','')
         if size > MAX_DOWNLOAD_BYTES:
@@ -88,7 +88,9 @@ class DownloadFunctions:
             pass
         job = self.store.create(text, Path(name).stem, name, size)
         self.save_transfer_options(job)
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton('Transfer', callback_data=f'dl:{job}'), InlineKeyboardButton('Download only', callback_data=f'dllocal:{job}'), InlineKeyboardButton('Give link', callback_data=f'directlink:{job}'), InlineKeyboardButton('No', callback_data=f'skip:{job}')], navigation()])
+        choices = [] if size > MAX_BYTES else [InlineKeyboardButton('Transfer', callback_data=f'dl:{job}')]
+        choices += [InlineKeyboardButton('Download only', callback_data=f'dllocal:{job}'), InlineKeyboardButton('Give link', callback_data=f'directlink:{job}'), InlineKeyboardButton('No', callback_data=f'skip:{job}')]
+        keyboard = InlineKeyboardMarkup([choices, navigation()])
         await self.show_panel(update.message, f'Item #{job}\nName: {name}\nEstimated size: {size / 1_000_000:.1f} MB\n' + ('Above the 2 GB Telegram limit; this file will be saved locally.\n' if size > MAX_BYTES else '') + f'Output: {FORMATS[self.transfer_options()["output_format"]]}\n{tracks}\nDownload this file?', reply_markup=keyboard)
 
 
@@ -136,7 +138,7 @@ class DownloadFunctions:
             check=await probe(job['source'],source_headers)
             if (hls_format and not check.get('hls_candidate')) or (not hls_format and (check.get('status') != 'ready' or check.get('size') != job['size'])):
                 self.store.update(job_id, state='failed', error='Source changed')
-                await context.bot.send_message(self.admin_id, f"Link status changed: {check.get('reason','size changed')}. Search again before retrying.")
+                await context.bot.send_message(self.admin_id, f"Link status changed: {check.get('reason','size changed')}. You can try the original link manually:\n{job['source']}", disable_web_page_preview=True)
                 return
             if not self.transfers_enabled():
                 self.store.update(job_id, state='cancelled', error='Transfers switched off')
@@ -164,7 +166,7 @@ class DownloadFunctions:
                 try: await message.edit_text(f'Download failed: {original}. Search again to retry.')
                 except Exception: pass
             reason = download_error_reason(exc)
-            await context.bot.send_message(self.admin_id, f'Download #{job_id} failed: {reason}.')
+            await context.bot.send_message(self.admin_id, f"Download #{job_id} failed: {reason}. You can try the original link manually:\n{job['source']}", disable_web_page_preview=True)
             return
         finally:
             timer.cancel()

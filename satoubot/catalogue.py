@@ -557,13 +557,11 @@ class CatalogueFunctions:
                 if state == 'manual':
                     stream['check_status']='manual';stream['check_reason']=info.get('reason')
                     self.store.cache('stream',stream)
-                    await context.bot.send_message(self.admin_id, f"{info.get('reason','Manual download required')}.\n{stream['url']}",disable_web_page_preview=True)
-                else:
-                    await context.bot.send_message(self.admin_id,f"{info.get('reason','Link check failed')}.{hint} Search again to retry.")
+                await context.bot.send_message(self.admin_id, f"{info.get('reason','Link check failed')}.{hint} You can try the original link manually:\n{stream['url']}", disable_web_page_preview=True)
                 return
             size=info['size']
             if not size:
-                await context.bot.send_message(self.admin_id,'File size is unknown. No download started.');return
+                await context.bot.send_message(self.admin_id,f"File size is unknown. No download started. You can try the original link manually:\n{stream['url']}", disable_web_page_preview=True);return
             actual=info['filename'] if Path(info['filename']).suffix else stream.get('filename') or info['filename']
             stream=dict(stream,filename=actual,size=size,confirmed_size=size,check_status='ready')
             stream['file_type']=Path(actual).suffix.lstrip('.').lower() or stream.get('file_type','unknown')
@@ -578,10 +576,12 @@ class CatalogueFunctions:
                 track_text = 'File sample (may be incomplete):\n' + track_summary(metadata)
             except Exception:
                 pass
-            await self.show_panel(None,f"Download this file?\nCatalogue: {clean_title(stream['movie'],stream)}\nActual file: {stream['filename']}\nSize: {size/1_000_000:.1f} MB\n{'Above 2 GB: local download only. ' if size > MAX_BYTES else ''}Format: {stream.get('file_type','unknown')}\nSource: {stream.get('provider','unknown')}\n{track_text}\nOutput: {FORMATS[self.transfer_options()['output_format']]}",reply_markup=Markup([[Button('Transfer',callback_data=f'yes:{key}'),Button('Download only',callback_data=f'yeslocal:{key}'),Button('Give link',callback_data=f'link:{key}'),Button('No',callback_data=f'no:{key}')], navigation()]), context=context, expected_generation=generation, remember=False)
+            choices = [] if size > MAX_BYTES else [Button('Transfer',callback_data=f'yes:{key}')]
+            choices += [Button('Download only',callback_data=f'yeslocal:{key}'),Button('Give link',callback_data=f'link:{key}'),Button('No',callback_data=f'no:{key}')]
+            await self.show_panel(None,f"Download this file?\nCatalogue: {clean_title(stream['movie'],stream)}\nActual file: {stream['filename']}\nSize: {size/1_000_000:.1f} MB\n{'Above 2 GB: local download only. ' if size > MAX_BYTES else ''}Format: {stream.get('file_type','unknown')}\nSource: {stream.get('provider','unknown')}\n{track_text}\nOutput: {FORMATS[self.transfer_options()['output_format']]}",reply_markup=Markup([choices, navigation()]), context=context, expected_generation=generation, remember=False)
         except Exception:
             if self.panel().generation != generation: return
-            await context.bot.send_message(self.admin_id,'Could not verify this source and its size. No download started. Try another link.')
+            await context.bot.send_message(self.admin_id,f"Could not verify this source and its size. No download started. You can try the original link manually:\n{stream['url']}", disable_web_page_preview=True)
 
     async def safe_movie_card(self, context, key):
         try:
@@ -604,11 +604,11 @@ class CatalogueFunctions:
         size, content_type=info.get('size'), info.get('content_type','')
         is_hls = bool(stream.get('hls'))
         if is_hls and not info.get('hls_candidate'):
-            await context.bot.send_message(self.admin_id, 'HLS source changed. Select it again.'); return
+            await context.bot.send_message(self.admin_id, f'HLS source changed. You can try the original link manually:\n{url}', disable_web_page_preview=True); return
         if not is_hls and (info.get('status','ready') != 'ready' or not size):
-            await context.bot.send_message(self.admin_id, f"Link status changed: {info.get('reason','size unknown')}. Search again to retry."); return
+            await context.bot.send_message(self.admin_id, f"Link status changed: {info.get('reason','size unknown')}. You can try the original link manually:\n{url}", disable_web_page_preview=True); return
         if stream.get('confirmed_size') and size != stream['confirmed_size']:
-            await context.bot.send_message(self.admin_id, 'The source size changed. Select the file again to review it.'); return
+            await context.bot.send_message(self.admin_id, f'The source size changed. Select the file again to review it or try the original link manually:\n{url}', disable_web_page_preview=True); return
         if not self.transfers_enabled():
             await context.bot.send_message(self.admin_id, 'Transfers are off. No download started.'); return
         movie = stream['movie']
