@@ -29,7 +29,7 @@ from .upload import UploadFunctions
 from .search import SearchFunctions
 from .group_management import GroupManagementFunctions
 from .migration import MigrationFunctions
-from .sessions import SessionManager
+from .sessions import SessionManager, single_instance
 from .destinations import DestinationFunctions
 from .catalogue import CatalogueFunctions
 from .discovery import Discovery
@@ -554,6 +554,11 @@ def main():
     root = Path(os.getenv('DATA_DIR', './data')).resolve()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     root.chmod(0o700)
+    with single_instance(root):
+        run_bot(root, token, admin, api_id, api_hash)
+
+
+def run_bot(root, token, admin, api_id, api_hash):
     media = root / 'media'; media.mkdir(exist_ok=True)
     logging.basicConfig(filename=root/'satoubot.log', level=logging.WARNING, format='%(asctime)s %(levelname)s %(message)s')
     store = Store(root/'satoubot.sqlite3')

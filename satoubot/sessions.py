@@ -1,4 +1,24 @@
+from contextlib import contextmanager
+import fcntl
+
 from telethon import TelegramClient
+
+
+@contextmanager
+def single_instance(data_dir):
+    """Hold an OS lock before either SQLite database is opened."""
+    with (data_dir / 'bot.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit(
+                'SatouBot is already running with this DATA_DIR. '
+                'Stop satoubot.service or the other bot process before starting it again.'
+            ) from None
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 class SessionManager:
