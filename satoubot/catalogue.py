@@ -47,8 +47,6 @@ class CatalogueFunctions:
         rows.append(navigation())
         title = 'Providers' if repository else 'Add-ons'
         text = f'{title} · Page {page+1}\nTap to turn ON/OFF. Changes apply to new lookups.'
-        if not repository and any(kind == 'animepahe' for _, kind, _ in service.manifests(active=False)):
-            text += '\nAnimePahe requires its separate API to be running.'
         if repository and not service.enabled(repository): text += '\nThe repository is OFF; enable it in Add-ons to use these providers.'
         if not entries: text += '\nNo sources saved. Add a manifest to get started.'
         await self.show_panel(update.message, text, reply_markup=Markup(rows))
@@ -185,7 +183,7 @@ class CatalogueFunctions:
             self.store.db.commit()
             if not cursor.rowcount: return
             qualities = ', '.join(dict.fromkeys(str(s.get('quality') or 'unspecified')[:35] for s in checked))[:250]
-            episode_label = (' · Episode ' + str(movie['episode']) if movie.get('animepahe_episodes') else f' · S{movie["season"]:02d}E{movie["episode"]:02d}') if movie.get('season') is not None else ''
+            episode_label = f' · S{movie["season"]:02d}E{movie["episode"]:02d}' if movie.get('season') is not None else ''
             caption = f'{movie["name"][:150]}{episode_label}\nYear: {movie.get("year") or movie.get("releaseInfo") or "unknown"}\nQualities: {qualities or "none found"}\nAvailable files: {len(source_ids)}'
             caption += '\nDW: checked for download. Manual and Retry links follow. Select a file to review it.'
             if not final: caption += '\nSearching other providers…'

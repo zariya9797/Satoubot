@@ -30,7 +30,6 @@ from .discovery import Discovery
 from .menu import MenuFunctions, navigation
 from .interface import InterfaceFunctions
 from .series import SeriesFunctions
-from .animepahe import register_default, DEFAULT_API
 from .transfer import MAX_BYTES
 from .daily import DailyFunctions
 from .source_history import SourceHistoryFunctions
@@ -387,7 +386,6 @@ def main():
     store.db.execute("UPDATE jobs SET state='upload_unknown' WHERE state='uploading'")
     store.db.execute("UPDATE jobs SET state='failed' WHERE state='downloading'")
     store.db.commit()
-    register_default(store, os.getenv('ANIMEPAHE_API_URL') or DEFAULT_API)
     sessions = SessionManager(root, api_id, api_hash)
     uploader = sessions.user
     try:

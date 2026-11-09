@@ -25,7 +25,7 @@ class SeriesFunctions:
         videos = ordered_episodes(movie)
         key = self.store.cache('series', movie)
         if season is None:
-            choices = [(('Episodes' if movie.get('animepahe_episodes') else f'Season {s}') if s else 'Specials', f'season:{key}:{s}:0') for s in sorted({v['season'] for v in videos})]
+            choices = [(f'Season {s}' if s else 'Specials', f'season:{key}:{s}:0') for s in sorted({v['season'] for v in videos})]
             title = f'{movie["name"]}\nChoose a season.'
             prefix = 'seasons'
         else:
@@ -35,9 +35,9 @@ class SeriesFunctions:
                 if video['season'] != season: continue
                 selected = dict(base, season=season, episode=video['episode'], embedded_streams=video.get('streams') or [], video_id=video.get('id') or f'{movie["id"]}:{season}:{video["episode"]}')
                 item = self.store.cache('movie', selected)
-                label = (f'Episode {video["episode"]:02d}' if movie.get('animepahe_episodes') else f'S{season:02d}E{video["episode"]:02d}') + f' · {video.get("title") or video.get("name") or "Episode"}'
+                label = f'S{season:02d}E{video["episode"]:02d}' + f' · {video.get("title") or video.get("name") or "Episode"}'
                 choices.append((label[:100], f'movie:{item}'))
-            title = f'{movie["name"]} · ' + ('Episodes' if movie.get('animepahe_episodes') else f'Season {season}') + '\nChoose an episode; files are checked for that episode only.'
+            title = f'{movie["name"]} · ' + f'Season {season}' + '\nChoose an episode; files are checked for that episode only.'
             prefix = f'season:{key}:{season}'
         page = max(0, min(page, max(0, (len(choices)-1)//8)))
         rows = [[Button(label, callback_data=data)] for label, data in choices[page*8:page*8+8]]
@@ -47,7 +47,6 @@ class SeriesFunctions:
         if (page+1)*8 < len(choices): paging.append(Button('More', callback_data=f'{route}:{page+1}'))
         if paging: rows.append(paging)
         if not videos: title += '\nThis catalogue did not supply season/episode metadata. Try another enabled catalogue.'
-        if movie.get('episodes_truncated'): title += '\nOnly the first 100 release pages are shown.'
         rows.append(navigation())
         await self.show_panel(None, title, reply_markup=Markup(rows), context=context)
 

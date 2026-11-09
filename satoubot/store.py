@@ -1,3 +1,4 @@
+import hashlib
 import sqlite3
 from pathlib import Path
 
@@ -22,6 +23,16 @@ class Store:
             );
             CREATE INDEX IF NOT EXISTS jobs_source ON jobs(source);
         ''')
+        # Retire the removed built-in API on existing installations as well.
+        for row in self.db.execute("SELECT url FROM manifests WHERE kind='animepahe'").fetchall():
+            key = 'enabled:' + hashlib.sha256(row['url'].encode()).hexdigest()
+            self.db.execute('DELETE FROM settings WHERE key=?', (key,))
+        self.db.execute("DELETE FROM manifests WHERE kind='animepahe'")
+        self.db.execute("DELETE FROM settings WHERE key='animepahe_default_base'")
+        self.db.execute("""DELETE FROM discovery_cache
+            WHERE json_extract(payload, '$.animepahe_session') IS NOT NULL
+               OR json_extract(payload, '$.movie.animepahe_session') IS NOT NULL""")
+        self.db.execute("DELETE FROM source_links WHERE json_extract(payload, '$.movie.animepahe_session') IS NOT NULL")
         self.db.commit()
 
     def setting(self, key, default=None):

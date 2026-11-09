@@ -116,11 +116,15 @@ Stream add-ons receive the catalogue episode ID only when their manifest resourc
 
 The bot gets IDs from your enabled catalogues and requires no IMDb or TMDB API key. If the selected metadata lacks a TMDB ID, it checks compatible enabled metadata add-ons for the same title ID. If none supplies a TMDB ID, plugins that require one cannot fetch that title; stream add-ons can still return results using the catalogue ID. The bot does not guess identities from similar titles.
 
-### AnimePahe add-on
+<!-- coderabbit-ai-generated:v1 -->
 
-AnimePahe appears enabled in **Add-ons** by default, with a switch to disable it. SatouBot connects to a separately running [AnimePahe API](https://github.com/ElijahCodes12345/animepahe-api/blob/main/readme.md), defaulting to `http://127.0.0.1:3000/`. Set `ANIMEPAHE_API_URL` in `.env` if your API uses a different address, and restart SatouBot. The upstream author requires users to host their own API; SatouBot does not install or start it. If it is unavailable, other catalogues can still return results and the search reports an AnimePahe source failure.
+<!-- coderabbit-ai-generated-section:v1:37af6d3f829d88b466306caf3c7cbe6d34520b08cd79c263eda878f28cd661ab -->
 
-Run the API in a separate isolated environment without mounting bot credentials or media. Its upstream scraper evaluates web page scripts and launches Chromium without its sandbox. Search results use AnimePahe's own title and episode IDs; the bot does not guess a match to a different catalogue. Episodes are listed in numeric order per AnimePahe title, up to 100 release pages. AnimePahe does not supply a consistent season number through this API, so the menu labels these entries as Episodes. Files still go through the normal link checks and approval flow. Source availability and any access restrictions depend on AnimePahe and its host. Live AnimePahe and Telegram transfers have not been verified.
+### Catalogue sources
+
+Add a Stremio catalogue manifest through **Add-ons** and enable the sources you want to search. Movie and series metadata, including episode IDs, come from those enabled catalogues. No separate anime API is required.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 
 <!-- /coderabbit-ai-generated:v1 -->
