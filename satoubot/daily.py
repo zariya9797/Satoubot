@@ -53,7 +53,8 @@ class DailyFunctions:
         rows = [[Button(str(n) + (' ✓' if n == quantity else ''), callback_data=f'daily:quantity:{n}') for n in range(4,8)],
                 [Button(str(n) + (' ✓' if n == quantity else ''), callback_data=f'daily:quantity:{n}') for n in range(8,11)],
                 [Button('Stop transfers' if self.transfers_enabled() and self.store.setting('daily_enabled') == '1' else 'Start daily transfers', callback_data='daily:toggle')],
-                [Button('Choose upload channel', callback_data='menu:channels')]]
+                [Button('Choose upload channel', callback_data='menu:channels')],
+                [Button('Cancel one', callback_data='daily:cancelone'), Button('Cancel all daily', callback_data='daily:cancelall')]]
         current = self.store.db.execute("SELECT identity FROM daily_titles WHERE state='offered' LIMIT 1").fetchone()
         if current:
             key = self.store.cache('daily_title', {'identity':current[0]})
@@ -69,6 +70,13 @@ class DailyFunctions:
         if update.effective_user.id != self.owner_id:
             return await self.show_panel(update.callback_query.message, 'Only the owner can configure Daily Uploads.')
         parts = update.callback_query.data.split(':')
+        if parts[1] == 'cancelone': return await self.cancel_menu(update.callback_query.message, daily_only=True)
+        if parts[1] == 'cancelall':
+            uploading = any(info['kind'] == 'upload' and self.is_daily_transfer(info) for _, info in self.active_transfers())
+            await self.cancel_daily_all()
+            self.store.set_setting('daily_status', 'Daily tasks cancelled.' + (' Check Telegram for a possibly completed upload before retrying.' if uploading else ''))
+            await self.cancel_daily_scan(context)
+            return await self.daily_menu(update.callback_query.message, context)
         if parts[1] == 'quantity':
             try: quantity = int(parts[2])
             except (ValueError, IndexError): return
@@ -82,11 +90,15 @@ class DailyFunctions:
             row = self.store.db.execute("SELECT * FROM daily_titles WHERE identity=? AND state='offered'", (entry['identity'],)).fetchone()
             if row:
                 if parts[1] == 'skip':
-                    self.store.db.execute("UPDATE daily_titles SET state='skipped' WHERE identity=?", (row['identity'],));self.store.db.commit()
+                    self.store.db.execute("UPDATE daily_titles SET state='skipped' WHERE identity=? AND state='offered'", (row['identity'],));self.store.db.commit()
+                    self.store.set_setting('daily_next_check', '0')
+                    tasks = [task for _, key, task, panel in self.lookup_tasks(all_admins=True) if panel.task_daily.get(key) == row['identity']]
+                    for task in tasks: task.cancel()
+                    if tasks: await asyncio.gather(*tasks, return_exceptions=True)
                 else:
                     movie = json.loads(row['payload'])
                     key = self.store.cache('movie', dict(movie, daily_identity=row['identity']))
-                    await self.start_panel_task('movie', 'Checking Daily Upload files…', lambda: self.safe_movie_card(context, key), context)
+                    await self.start_panel_task('movie', 'Checking Daily Upload files…', lambda: self.safe_movie_card(context, key), context, daily_identity=row['identity'])
         await self.daily_menu(update.callback_query.message, context)
 
     async def recent_releases(self):
@@ -115,7 +127,9 @@ class DailyFunctions:
             job = self.store.get(row['job_id'])
             if job and job['state'] == 'published':
                 self.store.db.execute("UPDATE daily_titles SET state='published', published_day=? WHERE identity=?", (self.daily_day(), row['identity']))
-            elif not job or job['state'] in ('failed','cancelled','upload_unknown'):
+            elif job and job['state'] == 'cancelled':
+                self.store.db.execute("UPDATE daily_titles SET state='skipped' WHERE identity=?", (row['identity'],))
+            elif not job or job['state'] in ('failed','upload_unknown'):
                 self.store.db.execute("UPDATE daily_titles SET state='needs_attention' WHERE identity=?", (row['identity'],))
         self.store.db.commit()
         if not self.transfers_enabled() or self.store.setting('daily_enabled') != '1': return
@@ -125,7 +139,7 @@ class DailyFunctions:
             self.store.set_setting('daily_status', 'Daily quota reached. Transfers are now off.')
             await context.bot.send_message(self.owner_id, 'Daily Uploads complete: quota reached. Transfers are now off.')
             return
-        if self.transfer_busy() or getattr(self, 'discovery_tasks', None): return
+        if sum(info['kind'] == 'download' for _, info in self.active_transfers()) >= 2 or getattr(self, 'discovery_tasks', None): return
         if self.store.db.execute("SELECT 1 FROM daily_titles WHERE state IN ('offered','transferring') LIMIT 1").fetchone(): return
         now = datetime.now(timezone.utc).timestamp()
         if now < float(self.store.setting('daily_next_check', '0')): return
@@ -142,7 +156,7 @@ class DailyFunctions:
             self.store.set_setting(alias, identity)
             key = self.store.cache('movie', dict(movie, daily_identity=identity))
             self.store.set_setting('daily_status', 'Awaiting your file choice: ' + movie['name'])
-            await self.start_panel_task('movie', 'Checking Daily Upload files…', lambda: self.safe_movie_card(context, key), context)
+            await self.start_panel_task('movie', 'Checking Daily Upload files…', lambda: self.safe_movie_card(context, key), context, daily_identity=identity)
             await self.daily_menu(None, context)
             return
         self.store.set_setting('daily_status', 'No new dated releases in the past 90 days. Checking again in 10 minutes.')

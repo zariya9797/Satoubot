@@ -47,9 +47,7 @@ class DestinationFunctions:
         if member.status!='administrator':
             await q.message.reply_text('Make the bot an administrator before selecting this chat.');return
         self.store.set_setting('target',destination['target'])
-        await q.edit_message_reply_markup(reply_markup=None)
+        await self.show_panel(q.message, 'Destination selected: '+destination['title'])
         job_id=destination['job']
         if job_id and self.store.get(job_id) and self.store.get(job_id)['state']=='review':
             await self.preview(context,job_id)
-        else:
-            await q.message.reply_text('Destination selected: '+destination['title'])

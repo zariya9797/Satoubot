@@ -22,7 +22,7 @@ class SearchFunctions:
         if (page+1)*8 < len(choices): paging.append(InlineKeyboardButton('More', callback_data=f'menu:savedpage:{page+1}'))
         if paging: buttons.append(paging)
         buttons.append(navigation())
-        await self.show_panel(update.message, f'Saved links · Page {page+1}' if choices else 'No saved links.', reply_markup=InlineKeyboardMarkup(buttons))
+        await self.show_panel(update.message, f'Saved files / links · Page {page+1}' if choices else 'No saved files or links.', reply_markup=InlineKeyboardMarkup(buttons))
 
     async def find(self, update, context):
         if not self.authorized(update): return

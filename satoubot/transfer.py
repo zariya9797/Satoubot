@@ -38,7 +38,11 @@ async def inspect_url(url, headers=None):
         return int(length), response.headers.get('content-type', '')
 
 
-async def download_sequential(url, destination: Path, expected_size: int, progress, headers=None):
+class RangeIgnored(ValueError):
+    pass
+
+
+async def download_sequential(url, destination: Path, expected_size: int, progress, headers=None, *, validator=None, validator_header=None):
     """Stream with a hard limit even if the server sends more than its advertised size."""
     if expected_size > MAX_DOWNLOAD_BYTES or expected_size <= 0:
         raise ValueError('File exceeds the 10 GB local limit or has an unknown size.')
@@ -47,8 +51,13 @@ async def download_sequential(url, destination: Path, expected_size: int, progre
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(transport=PublicTransport(), follow_redirects=True, max_redirects=5, timeout=httpx.Timeout(60, connect=30), trust_env=False) as client:
-            async with client.stream('GET', url, headers={**(headers or {}), 'Accept-Encoding': 'identity'}) as response:
+            request_headers = {**(headers or {}), 'Accept-Encoding': 'identity'}
+            if validator:
+                request_headers['If-Match' if validator_header == 'etag' else 'If-Unmodified-Since'] = validator
+            async with client.stream('GET', url, headers=request_headers) as response:
                 response.raise_for_status()
+                if validator and (response.status_code != 200 or response.headers.get(validator_header) != validator):
+                    raise ValueError('Source changed before the single connection retry.')
                 with temporary.open('wb') as output:
                     async for chunk in response.aiter_bytes(256 * 1024):
                         total += len(chunk)
@@ -75,10 +84,28 @@ async def download(url, destination: Path, expected_size: int, progress, connect
     headers = {**(headers or {}), 'Accept-Encoding': 'identity'}
     async with httpx.AsyncClient(transport=PublicTransport(), follow_redirects=True, max_redirects=5, timeout=httpx.Timeout(60, connect=30), trust_env=False) as client:
         head = await client.head(url, headers=headers)
-        head.raise_for_status()
-        validator = head.headers.get('etag') or head.headers.get('last-modified')
-        if (not validator or validator.startswith('W/') or head.headers.get('content-length') != str(expected_size)
-                or head.headers.get('accept-ranges', '').lower() != 'bytes'):
+        if head.status_code in (401, 403, 405, 501):
+            # A signed GET URL may deliberately forbid HEAD. Verify an exact,
+            # bounded range instead; retain the same public transport and limits.
+            async with client.stream('GET', url, headers={**headers, 'Range': 'bytes=0-0', 'Accept-Encoding': 'identity'}) as sample:
+                sample.raise_for_status()
+                if (sample.status_code != 206 or sample.headers.get('content-range') != f'bytes 0-0/{expected_size}'
+                        or sample.headers.get('content-encoding', 'identity').lower() != 'identity'):
+                    raise ValueError('Source did not provide the expected byte range and size.')
+                count = 0
+                async for chunk in sample.aiter_raw(chunk_size=1):
+                    count += len(chunk)
+                    if count > 1: break
+                if count != 1: raise ValueError('Source sent an incomplete byte range.')
+                validator_header = 'etag' if sample.headers.get('etag') else 'last-modified'
+                validator = sample.headers.get(validator_header)
+        else:
+            head.raise_for_status()
+            validator_header = 'etag' if head.headers.get('etag') else 'last-modified'
+            validator = head.headers.get(validator_header)
+            if head.headers.get('content-length') != str(expected_size) or head.headers.get('accept-ranges', '').lower() != 'bytes':
+                return await download_sequential(url, destination, expected_size, progress, headers=headers)
+        if not validator or validator.startswith('W/'):
             return await download_sequential(url, destination, expected_size, progress, headers=headers)
         temporary = destination.with_suffix(destination.suffix + '.part')
         count = min(max(1, connections), 8, expected_size)
@@ -94,6 +121,8 @@ async def download(url, destination: Path, expected_size: int, progress, connect
                 request_headers = {**headers, 'Range': f'bytes={start}-{end}', 'If-Range': validator,
                                    'Accept-Encoding': 'identity'}
                 async with client.stream('GET', url, headers=request_headers) as response:
+                    if response.status_code == 200 and response.headers.get(validator_header) == validator:
+                        raise RangeIgnored('Source ignored byte ranges without changing its validator.')
                     if response.status_code != 206 or response.headers.get('content-range') != f'bytes {start}-{end}/{expected_size}':
                         raise ValueError('Source did not honor the requested byte range.')
                     written = 0
@@ -114,6 +143,14 @@ async def download(url, destination: Path, expected_size: int, progress, connect
                     group.create_task(part(index))
             os.replace(temporary, destination)
             return total
-        except BaseException:
+        except BaseException as exc:
             temporary.unlink(missing_ok=True)
+            def leaves(error):
+                if isinstance(error, BaseExceptionGroup):
+                    return [leaf for child in error.exceptions for leaf in leaves(child)]
+                return [error]
+            if isinstance(exc, ExceptionGroup) and all(isinstance(item, RangeIgnored) for item in leaves(exc)):
+                await progress(0, expected_size, 0)
+                return await download_sequential(url, destination, expected_size, progress, headers=headers,
+                                                 validator=validator, validator_header=validator_header)
             raise

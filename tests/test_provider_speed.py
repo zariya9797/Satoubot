@@ -196,7 +196,7 @@ async def test_addons_on_same_host_do_not_overlap(tmp_path,monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_slow_initial_manifest_does_not_block_configured_sources(tmp_path,monkeypatch):
+async def test_only_installed_sources_are_used_without_automatic_manifest_additions(tmp_path,monkeypatch):
     store=Store(tmp_path/'db');service=Discovery(store)
     service.register('https://repo.test/manifest.json', {'name':'Plugins','scrapers':[{'name':'Ready','filename':'ready.js','supportedTypes':['movie']}]})
     release=asyncio.Event(); first=asyncio.Event()
@@ -209,9 +209,9 @@ async def test_slow_initial_manifest_does_not_block_configured_sources(tmp_path,
     task=asyncio.create_task(service.streams({'id':'tt1','moviedb_id':1},on_result=on_result))
     try:
         await asyncio.wait_for(first.wait(),1)
-        assert not task.done()
-        release.set();found,errors=await task
-        assert len(found)==1 and 'HdHub add-on could not be loaded' in errors
+        found,errors=await task
+        assert len(found)==1 and not errors
+        assert len(service.manifests()) == 1
     finally:
         release.set();task.cancel();await asyncio.gather(task,return_exceptions=True)
 

@@ -11,7 +11,7 @@ from satoubot.discovery import Discovery
 
 def setup(tmp_path):
     bot=Bot(Store(tmp_path/'db'),tmp_path,42,MagicMock());bot.daily_init()
-    context=SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock(return_value=MagicMock(edit_text=AsyncMock()))))
+    context=SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock(return_value=MagicMock(edit_text=AsyncMock(),delete=AsyncMock()))))
     bot.daily_menu=AsyncMock();bot.safe_movie_card=AsyncMock()
     return bot,context
 
@@ -76,10 +76,11 @@ async def test_transfer_and_link_modes_keep_confirmation_and_off_gate(tmp_path,m
     monkeypatch.setattr('satoubot.catalogue.probe',AsyncMock(return_value={'status':'ready','size':100,'filename':'film.mkv','content_type':'video/x-matroska'}))
     await bot.prepare_choice(context,stream)
     buttons=context.bot.send_message.await_args.kwargs['reply_markup'].inline_keyboard[0]
-    assert [b.text for b in buttons]==['Transfer','Give link','No']
-    q=SimpleNamespace(data=buttons[1].callback_data,message=MagicMock(reply_text=AsyncMock()))
+    assert [b.text for b in buttons]==['Transfer','Download only','Give link','No']
+    q=SimpleNamespace(data=buttons[2].callback_data,message=MagicMock(reply_text=AsyncMock()))
     await bot.catalogue_callback(SimpleNamespace(callback_query=q),context)
-    assert context.bot.send_message.await_args.args[1]==stream['url'] and not bot.tasks
+    assert q.message.reply_text.await_args.args[0]==stream['url'] and not bot.tasks
+    assert q.message.reply_text.await_args.kwargs['disable_web_page_preview'] is True
     q.data=buttons[0].callback_data
     await bot.catalogue_callback(SimpleNamespace(callback_query=q),context)
     assert not bot.tasks and 'off' in q.message.reply_text.await_args.args[0]

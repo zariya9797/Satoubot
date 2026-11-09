@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
 
+from .addon_health import set_status
 from .plugin_network import fetch_public
 from .media_identity import supports_resource, resolve_tmdb
 
@@ -18,10 +19,11 @@ import httpx
 
 HDHUB = 'https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAiLCJzb3J0IjoiZGVzYyJ9/manifest.json'
 
+YORU = 'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json'
+PRESETS = {'yoru': ('Yoru providers', YORU), 'hdhub': ('HDHub', HDHUB)}
+
 PROVIDER_TIMEOUT = 30
 SEARCH_TIMEOUT = 90
-
-DEFAULT_PROVIDERS = 'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json'
 
 
 async def fetch_bytes(url, limit=8_000_000, headers=None):
@@ -45,7 +47,13 @@ async def fetch_json(url):
 def stream_records(items, name):
     found = []
     for item in items[:30]:
-        if not isinstance(item, dict) or not isinstance(item.get('url'), str): continue
+        if not isinstance(item, dict): continue
+        item = dict(item)
+        if not item.get('url') and isinstance(item.get('infoHash'), str):
+            from .torrent import normalize_magnet, TorrentError
+            try: item['url'] = normalize_magnet('magnet:?xt=urn:btih:'+item['infoHash'])[0]
+            except TorrentError: continue
+        if not isinstance(item.get('url'), str): continue
         hints = item.get('behaviorHints') or {}
         headers = (hints.get('proxyHeaders') or {}).get('request', {})
         description = str(item.get('description') or item.get('title') or '')
@@ -77,8 +85,43 @@ class Discovery:
         url = url.strip().replace('stremio://', 'https://', 1)
         if not urlparse(url).path.endswith('manifest.json'):
             url = url.rstrip('/') + '/manifest.json'
-        manifest = await self.cached_json(url)
-        return self.register(url, manifest, invalidate=False)
+        try:
+            manifest = await self.cached_json(url)
+            result = self.register(url, manifest, invalidate=False)
+        except (ValueError, TypeError):
+            set_status(self.store, url, 'manifest', 'invalid')
+            raise
+        except Exception:
+            set_status(self.store, url, 'manifest', 'error')
+            raise
+        set_status(self.store, url, 'manifest', 'ok')
+        return result
+
+    async def check_manifest(self, url, *, refresh=False):
+        """Probe one saved manifest without testing providers or changing switches."""
+        row = self.store.db.execute('SELECT kind FROM manifests WHERE url=?', (url,)).fetchone()
+        if not row: return 'unknown'
+        try:
+            async with asyncio.timeout(8):
+                manifest = await fetch_json(url)
+            if not isinstance(manifest, dict): raise ValueError('Invalid manifest')
+            if row['kind'] == 'providers':
+                if not isinstance(manifest.get('scrapers'), list): raise ValueError('Invalid provider manifest')
+            elif (isinstance(manifest.get('scrapers'), list) or
+                  any(key in manifest and not isinstance(manifest[key], list) for key in ('catalogs', 'resources')) or
+                  not any(isinstance(manifest.get(key), list) for key in ('catalogs', 'resources'))):
+                raise ValueError('Invalid add-on manifest')
+            if refresh:
+                # Preserve switch settings and use only the same previously saved URL.
+                self.register(url, manifest)
+        except (ValueError, TypeError):
+            set_status(self.store, url, 'manifest', 'invalid')
+            return 'invalid'
+        except Exception:
+            set_status(self.store, url, 'manifest', 'error')
+            return 'error'
+        set_status(self.store, url, 'manifest', 'ok')
+        return 'ok'
 
     def register(self, url, manifest, invalidate=True):
         if urlparse(url).scheme not in ('http', 'https'):
@@ -100,10 +143,17 @@ class Discovery:
         self.store.db.commit()
         return manifest.get('name', 'Add-on'), kind
 
-    def enabled(self, url, provider=None):
+    def enabled(self, url, provider=None, default_enabled=None):
         identity = url + ('#' + provider if provider else '')
         key = 'enabled:' + hashlib.sha256(identity.encode()).hexdigest()
-        return self.store.setting(key, '1') == '1'
+        if default_enabled is None and provider:
+            row = self.store.db.execute('SELECT data FROM manifests WHERE url=? AND kind=?', (url, 'providers')).fetchone()
+            if row:
+                scrapers = json.loads(row['data']).get('scrapers', [])
+                provider_info = next((p for p in scrapers if isinstance(p, dict) and p.get('filename') == provider), {})
+                default_enabled = provider_info.get('enabled', True)
+        if default_enabled is None: default_enabled = True
+        return self.store.setting(key, '1' if default_enabled else '0') == '1'
 
     def toggle(self, url, provider=None):
         identity = url + ('#' + provider if provider else '')
@@ -119,20 +169,32 @@ class Discovery:
         results, errors = [], []
         for url, kind, manifest in self.manifests():
             if kind != 'addon': continue
+            queried = failures = matches_count = 0
             for catalog in manifest.get('catalogs', []):
                 media_type = catalog.get('type')
                 if not isinstance(media_type, str) or not media_type: continue
                 extras = catalog.get('extra', [])
                 if not any(e.get('name') == 'search' for e in extras if isinstance(e, dict)): continue
                 try:
+                    queried += 1
                     endpoint = f'catalog/{quote(media_type, safe="")}/{quote(str(catalog["id"]), safe="")}/search={quote(query, safe="")}.json'
                     data = await fetch_json(urljoin(url, endpoint))
-                    for meta in data.get('metas', [])[:20]:
+                    metas = data.get('metas')
+                    if not isinstance(metas, list): raise ValueError('Invalid catalogue response')
+                    matches_count += sum(1 for meta in metas[:20] if isinstance(meta, dict) and meta.get('id') and meta.get('name'))
+                    for meta in metas[:20]:
                         if not isinstance(meta, dict) or not meta.get('id') or not meta.get('name'): continue
-                        if any(m['id'] == str(meta['id']) and m.get('type') == media_type for m in results): continue
-                        results.append(dict(meta, id=str(meta['id']), type=media_type, addon=url))
+                        existing = next((m for m in results if m['id'] == str(meta['id']) and m.get('type') == media_type), None)
+                        source = {'name': manifest.get('name', 'Catalogue'), 'catalog': str(catalog['id']), 'url': url}
+                        if existing:
+                            existing.setdefault('catalogue_sources', []).append(source)
+                            continue
+                        results.append(dict(meta, id=str(meta['id']), type=media_type, addon=url, catalogue_sources=[source]))
                 except Exception:
+                    failures += 1
                     errors.append(manifest.get('name', 'Catalogue'))
+            if queried:
+                set_status(self.store, url, 'search', 'error' if failures == queried else 'partial' if failures else 'ok' if matches_count else 'empty')
         normalized = lambda text: ' '.join(re.findall(r'\w+', text.casefold()))
         term = normalized(query)
         terms=term.split()
@@ -158,7 +220,11 @@ class Discovery:
                 # Metadata enrichment must not replace the selected catalogue/episode identity.
                 result = dict(movie, **meta)
                 result['metadata_source'] = url
-                for key in ('id', 'type', 'addon', 'video_id', 'season', 'episode', 'embedded_streams'):
+                if result.get('poster'):
+                    result['artwork_source'] = url if meta.get('poster') else movie.get('artwork_source') or movie['addon']
+                elif result.get('background'):
+                    result['artwork_source'] = url if meta.get('background') else movie.get('artwork_source') or movie['addon']
+                for key in ('id', 'type', 'addon', 'video_id', 'season', 'episode', 'embedded_streams', 'catalogue_sources'):
                     if key in movie: result[key] = movie[key]
                 return result
             except Exception as exc:
@@ -178,6 +244,7 @@ class Discovery:
         if embedded_source and not self.enabled(embedded_source): embedded = []
         direct = stream_records(embedded, 'Catalogue') if isinstance(embedded, list) else []
         if direct:
+            if embedded_source: set_status(self.store, embedded_source, 'stream', 'ok')
             if on_result: await on_result(direct, None)
             return direct, []
         semaphore = asyncio.Semaphore(4)
@@ -202,13 +269,21 @@ class Discovery:
                             tmdb = await plugin_identity()
                             code = (await fetch_bytes(urljoin(url, source['filename']))).decode()
                             found = await run_plugin(code, str(tmdb), 'tv', movie['season'], movie['episode']) if provider_type == 'tv' else await run_plugin(code, str(tmdb))
-                            return [dict(item, provider=name, source_manifest=url, source_provider=source['filename']) for item in found[:30]
-                                    if isinstance(item, dict) and isinstance(item.get('url'), str)], None
+                            records = [dict(item, provider=name, source_manifest=url, source_provider=source['filename']) for item in found[:30]
+                                       if isinstance(item, dict) and isinstance(item.get('url'), str)]
+                            set_status(self.store, url, 'stream', 'ok' if records else 'empty', source['filename'])
+                            return records, None
                         data = await fetch_json(urljoin(url, f'stream/{quote(media_type, safe="")}/{quote(stream_id, safe="")}.json'))
-                        return [dict(item, source_manifest=url) for item in stream_records(data.get('streams', []), name)], None
+                        raw = data.get('streams')
+                        if not isinstance(raw, list): raise ValueError('Invalid stream response')
+                        records = [dict(item, source_manifest=url) for item in stream_records(raw, name)]
+                        set_status(self.store, url, 'stream', 'ok' if records else 'empty')
+                        return records, None
                 except ProviderRuntimeError as exc:
+                    set_status(self.store, url, 'stream', 'error', source.get('filename') if kind == 'providers' else None)
                     return [], str(exc)
                 except Exception:
+                    set_status(self.store, url, 'stream', 'error', source.get('filename') if kind == 'providers' else None)
                     return [], name
 
         async def addon_query(url, manifest):
@@ -226,16 +301,6 @@ class Discovery:
             tasks.add(task)
             all_tasks.add(task)
 
-        async def bootstrap(url, label):
-            # Setup never blocks already configured sources from returning results.
-            async with semaphore:
-                try:
-                    async with asyncio.timeout(PROVIDER_TIMEOUT):
-                        await self.add(url)
-                    return url, None
-                except Exception:
-                    return None, f'{label} could not be loaded'
-
         for url, kind, manifest in manifests:
             if kind == 'addon':
                 if supports_resource(manifest, 'stream', media_type, stream_id):
@@ -243,12 +308,9 @@ class Discovery:
         for url, kind, manifest in manifests:
             if kind == 'providers':
                 for p in manifest['scrapers']:
-                    if p.get('enabled', True) and provider_type in p.get('supportedTypes', []) and self.enabled(url, p['filename']):
+                    if not isinstance(p, dict) or not isinstance(p.get('filename'), str) or not p['filename']: continue
+                    if provider_type in (p.get('supportedTypes') or []) and self.enabled(url, p['filename']):
                         launch(query(url, p, kind))
-        if self.store.setting('source_selection_explicit') != '1' and not any(url == HDHUB for url, _, _ in self.manifests(active=False)):
-            launch(bootstrap(HDHUB, 'HdHub add-on'))
-        if self.store.setting('source_selection_explicit') != '1' and not any(kind == 'providers' for _, kind, _ in self.manifests(active=False)):
-            launch(bootstrap(DEFAULT_PROVIDERS, 'Yoru providers'))
         try:
             async with asyncio.timeout(SEARCH_TIMEOUT):
                 while tasks:
@@ -256,17 +318,6 @@ class Discovery:
                     tasks.difference_update(done)
                     for task in done:
                         found, error = await task
-                        if isinstance(found, str):
-                            # A fetched manifest contributes its sources immediately.
-                            for url, kind, manifest in self.manifests():
-                                if url != found: continue
-                                if kind == 'providers':
-                                    for p in manifest['scrapers']:
-                                        if p.get('enabled', True) and provider_type in p.get('supportedTypes', []) and self.enabled(url, p['filename']):
-                                            launch(query(url, p, kind))
-                                elif supports_resource(manifest, 'stream', media_type, stream_id):
-                                    launch(addon_query(url, manifest))
-                            continue
                         fresh = []
                         for item in found or []:
                             if item['url'] not in seen:

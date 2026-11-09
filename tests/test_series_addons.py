@@ -100,14 +100,13 @@ async def test_addon_list_toggles_then_renders_and_has_explicit_import_button(tm
     context = SimpleNamespace(user_data={'manifest_pending':True})
     await bot.addons(update, context)
     rows = message.reply_text.await_args.kwargs['reply_markup'].inline_keyboard
-    assert rows[0][0].text == 'ON · Repository'
+    assert 'ON · Repository' in rows[0][0].text
     assert 'manifest_pending' not in context.user_data
     assert any(b.callback_data == 'menu:addmanifest' for row in rows for b in row)
     update.callback_query = SimpleNamespace(message=message, data=rows[0][0].callback_data)
     await bot.addon_callback(update, context)
     assert not service.enabled('https://repo.test/manifest.json')
-    panel = bot.panel().message
-    assert panel.edit_text.await_args.kwargs['reply_markup'].inline_keyboard[0][0].text == 'OFF · Repository'
+    assert 'OFF · Repository' in message.reply_text.await_args.kwargs['reply_markup'].inline_keyboard[0][0].text
 
 
 @pytest.mark.asyncio

@@ -228,11 +228,12 @@ async def test_busy_transfer_asks_to_wait_and_preserves_approval(tmp_path):
     store.update(job, state='review', target='-100123', approval_token='token')
     bot = Bot(store, tmp_path, 42, MagicMock())
     release = asyncio.Event()
-    bot.spawn(release.wait())
+    bot.spawn(release.wait(), kind='upload')
+    bot.spawn(release.wait(), kind='upload')
     q = MagicMock(); q.data = f'upload:{job}:token'; q.answer = AsyncMock(); q.message.reply_text = AsyncMock()
     update = MagicMock(); update.effective_user.id = 42; update.effective_chat.type = 'private'; update.callback_query = q
     await bot.callback(update, MagicMock())
-    assert 'wait' in q.message.reply_text.await_args.args[0]
+    assert 'wait' in q.message.reply_text.await_args.args[0].lower()
     assert store.get(job)['state'] == 'review'
     assert store.get(job)['approval_token'] == 'token'
     update.message.text = 'Stop transfers'; update.message.reply_text = AsyncMock()

@@ -88,7 +88,7 @@ class SourceHistoryFunctions:
             if provider:
                 try: scrapers = json.loads(manifest['data']).get('scrapers', [])
                 except (TypeError, ValueError): continue
-                if not any(p.get('filename') == provider and p.get('enabled', True) for p in scrapers if isinstance(p, dict)): continue
+                if not any(p.get('filename') == provider for p in scrapers if isinstance(p, dict)): continue
             url = stream.get('url', '')
             key = host_key(url)
             if not key: continue

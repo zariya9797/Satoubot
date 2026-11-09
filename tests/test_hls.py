@@ -105,8 +105,10 @@ async def test_large_hls_is_saved_locally_and_never_uploaded(tmp_path,monkeypatc
     context=SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock(return_value=message)))
     monkeypatch.setattr('satoubot.download.probe',AsyncMock(return_value={'status':'manual','hls_candidate':True}))
     async def fake_download(url,path,fmt,progress,**kwargs):
-        path.write_bytes(b'video');return 2_000_000_001
+        with path.open('wb') as f: f.truncate(2_000_000_001)
+        return 2_000_000_001
     monkeypatch.setattr('satoubot.download.download_hls',fake_download)
+    monkeypatch.setattr('satoubot.preferences.inspect_media', AsyncMock(return_value={'streams':[]}))
     await bot.perform_download(context,job)
     assert store.get(job)['state']=='local_only' and store.get(job)['size']==2_000_000_001
     bot.preview.assert_not_awaited()
@@ -151,7 +153,7 @@ async def test_hls_search_confirmation_and_download_gate(tmp_path,monkeypatch):
     sent=context.bot.send_message.await_args
     assert 'unknown' in sent.args[1] and '10 GB' in sent.args[1] and '2 GB' in sent.args[1]
     buttons=sent.kwargs['reply_markup'].inline_keyboard[0]
-    assert [b.text for b in buttons]==['Transfer','Give link','No']
+    assert [b.text for b in buttons]==['Transfer','Download only','Give link','No']
     key=int(buttons[0].callback_data.split(':')[1])
     choice=bot.store.cached(key,'confirmation')
     bot.set_transfers(False);bot.perform_download=AsyncMock()
@@ -188,7 +190,7 @@ async def test_direct_hls_offers_transfer_and_manual_link(tmp_path,monkeypatch):
     await bot.handle_source(update,'https://source.test/film.m3u8')
     args=update.message.reply_text.await_args
     assert 'unknown' in args.args[0]
-    assert [b.text for b in args.kwargs['reply_markup'].inline_keyboard[0]]==['Transfer','Give link','No']
+    assert [b.text for b in args.kwargs['reply_markup'].inline_keyboard[0]]==['Transfer','Download only','Give link','No']
 
 
 @pytest.mark.asyncio
@@ -205,9 +207,10 @@ async def test_direct_media_above_2gb_is_approved_and_saved_locally(tmp_path,mon
     store.update(job['id'],state='downloading')
     async def download(url,path,expected,progress,**kwargs):
         assert expected == size
-        path.write_bytes(b'media')
+        with path.open('wb') as f: f.truncate(size)
     monkeypatch.setattr('satoubot.download.download',download)
     context=SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock(return_value=MagicMock(edit_text=AsyncMock()))))
+    monkeypatch.setattr('satoubot.preferences.inspect_media', AsyncMock(return_value={'streams':[]}))
     await bot.perform_download(context,job['id'])
     assert store.get(job['id'])['state']=='local_only'
     assert store.get(job['id'])['size']==size

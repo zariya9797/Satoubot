@@ -102,3 +102,21 @@ def test_ready_links_use_history_but_still_come_before_manual_links(tmp_path):
     keys=[bot.store.cache('stream',item) for item in (unknown,manual,good)]
     buttons=bot.file_page(1,keys,0).inline_keyboard
     assert [row[0].callback_data for row in buttons[:3]] == [f'file:{keys[2]}',f'file:{keys[0]}',f'file:{keys[1]}']
+
+
+@pytest.mark.asyncio
+async def test_idle_checks_follow_explicit_provider_override(tmp_path, monkeypatch):
+    bot, stream = setup(tmp_path)
+    url=stream['source_manifest']
+    service=Discovery(bot.store)
+    service.register(url, {'scrapers':[{'filename':'source.js','enabled':False}]})
+    stream['source_provider']='source.js'
+    bot.store.cache('stream',stream)
+    check=AsyncMock(return_value={'status':'ready','size':100})
+    monkeypatch.setattr('satoubot.source_history.probe',check)
+    await bot.idle_source_check()
+    check.assert_not_awaited()
+    service.toggle(url,'source.js')
+    bot.last_idle_check-=1000
+    await bot.idle_source_check()
+    check.assert_awaited_once()

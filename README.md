@@ -1,6 +1,79 @@
 <!-- coderabbit-ai-generated:v1 -->
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:7b7b730121a5c424183b9b660d9c9e6aee8232df3ef390de029e51b0531709f1 -->
+
 # SatouBot
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:32d899aa2ddc20edd225eb482fdfbbf05d4c4b99d7c75c30af95f3dbf39dc021 -->
+
+## Automatic startup with systemd (WSL)
+
+The Telegram local Bot API must already have a working `satoubot-api.service`; the installer retains its current settings and backs up any existing `satoubot.service` before replacing it. Verify that the API unit's working directory and credentials match your existing Telegram API setup. The bot unit uses this checkout and `.env` and waits up to 90 seconds for the configured `BOT_API_URL` TCP port. A listening port does not prove Telegram authentication or later API requests will succeed. The API dependency is for your local Telegram Bot API, not an external catalogue.
+
+After active downloads/uploads finish, stop any manually running SatouBot with Ctrl+C. In your bot checkout:
+
+```bash
+sudo bash scripts/install-systemd.sh
+sudo systemctl enable satoubot.service
+sudo systemctl restart satoubot.service
+systemctl is-active satoubot-api.service satoubot.service
+```
+
+`restart` starts the API dependency if needed. Verify both units are active and then send `/start` to the bot. The installer does not start or restart either service itself. Use `journalctl -u satoubot.service -n 50 --no-pager` and `journalctl -u satoubot-api.service -n 50 --no-pager` if startup fails. Review logs for secrets before sharing. Start one bot process for a token: once the service is running, do not separately start `python -m satoubot.app`.
+
+For WSL, systemd must be enabled in `/etc/wsl.conf` and the distro must be running. Enabling a systemd service starts it when the WSL distro starts; it does not itself start the distro on Windows login. Wait for active transfers before restarting the bot service.
+
+## Local media and torrent downloads
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+### Install and update on WSL / Ubuntu
+
+After active downloads/uploads finish, stop the manually running bot with Ctrl+C, then:
+
+```bash
+cd ~/Satoubot-clean
+git pull --ff-only origin coderabbit/fix-animepahe-cookie-refresh/4d4b1461
+sudo apt-get update
+sudo apt-get install -y ffmpeg aria2
+source .venv/bin/activate
+python -m satoubot.app
+```
+
+Continue running your existing Telegram local Bot API service (`satoubot-api.service`) when `BOT_API_URL` points to it. The removed browser API, Brave debugger, Docker containers for that API, and WSL socat relay are no longer used by SatouBot. Its old `.env` API setting is ignored. Do not run both a manual bot process and `satoubot.service` for the same token. Existing Python requirements are unchanged.
+
+### Settings and file review
+
+Open **Settings** (or `/settings`) to save an output format and delivery mode for your admin account in the existing local SQLite database. Changes affect new selections. Choose **Original**, **MKV (keep codecs)**, **MP4 (keep codecs)**, or **MP4 (H.264/AAC)**. Remuxing changes the container without re-encoding. H.264/AAC MP4 re-encodes video/audio and converts compatible text subtitles. Some codecs, image subtitles, attachments, and data tracks cannot go into every container; failed conversions retain the original and report the failure. Arbitrary FFmpeg arguments are not accepted.
+
+Choose a file from your catalogues or send an HTTP(S) file URL. The confirmation shows the source, format, output choice, and audio/subtitle information. Direct media track checks read at most 8 MiB in bounded public HTTP ranges into a local sample; FFprobe never opens a remote URL. Samples can be incomplete, and some providers do not expose tracks until the full file is downloaded. Add-on language/subtitle declarations are labelled as reported metadata. External subtitle links are listed as declarations and are not automatically fetched or embedded.
+
+HLS downloads still support finite, unencrypted TS/fMP4 playlists with embedded audio. Set output to **MKV** to remux the downloaded TS file into MKV. Separate audio/subtitle playlists, DRM, live streams, byte ranges, and discontinuities remain unsupported; no protection is bypassed. Completed local files are inspected again for embedded audio/subtitle languages and codecs.
+
+Choose **Download only** to retain the file on this server. The **Transfer** button uses the saved delivery default; **Download only** overrides it for that selection. Files at or below 2 GB can later enter Telegram review from **Saved files / links → Review Telegram upload**. **Convert format** is available from local files and upload review. The original is retained when producing a converted file. Existing output files are never overwritten. A fresh preview and individual approval are required for every Telegram upload. Files above 2 GB remain local; downloads/conversions are limited to 10 GB. Conversion can need space for both original and output.
+
+### Torrent files
+
+Send a magnet link, a public HTTP(S) `.torrent` URL, or a `.torrent` document under 4 MB. Compatible add-on `infoHash`/magnet results also open torrent selection. Magnets fetch metadata first. Choose one file in the paginated list, then explicitly choose **Download only** or **Download → review upload**. No content download starts until that confirmation; empty files and files above 10 GB cannot be selected. Torrent metadata normally has filenames/sizes, not verified language tracks; embedded tracks are inspected after completion.
+
+The aria2 process is owned by the current task and uses DHT/peer exchange for public v1/hybrid torrents (piece size up to 16 MiB). Trackers, web seeds, external metadata URLs, and private tracker credentials are discarded. Private torrents and v2-only torrents are unsupported. Availability depends on reachable peers and WSL/network configuration. Torrent mode intentionally opens peer-to-peer networking; the HTTP downloader retains its separate public-destination checks. Normal BitTorrent piece sharing can occur during download, capped at 64 KiB/s; continued seeding is disabled after completion. No RPC server is exposed. Selecting one file can also require adjacent pieces from another file; the task disk limit includes a bounded allowance for those pieces. Status reports approximate disk bytes written. Cancellation terminates that aria2 process and removes incomplete content for that task.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:7cbfacfec1e8f1fd7363352e85a8ced9318eaa29ffb05a7cd81a273015a0ff2a -->
+
+**Back** returns to the previous screen. **Cancel** or `/cancel` lists active work and lets you cancel one or all tasks; **Active transfers** has the same controls. `/stop` cancels active work and turns transfers and Daily Uploads off; `/start` opens the menu and re-enables transfers after `/stop`, while Daily Uploads must be started separately. A cancelled upload may already be in Telegram: check the destination before retrying. Settings remain local; Telegram is the only upload destination.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+The implementation was informed by the settings, selection and local-download flows in [mirror-leech-telegram-bot](https://github.com/anasty17/mirror-leech-telegram-bot). It uses SatouBot's existing modules and approval model. Existing group, daily-upload and migration features are retained; no new external upload service or catalogue was added.
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Early foundation for a private Telegram media administrator. This is not yet the complete bot.
 
@@ -38,7 +111,13 @@ The owner and authorized admins can send an HTTP(S) media URL or choose a search
 
 <!-- coderabbit-ai-generated-section:v1:750b9412dc59dc775f8a57371e759409a669f0bb65f5e7f9018457286e871327 -->
 
-A download uses up to four HTTP byte-range connections when the server advertises range support and provides a stable validator. No aria2 integration or transcoding is used; the verified filename supplies the displayed format, and ffprobe is not required.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:8bfb7e462b9443addf43cb5b3b1aceeae36f671987ea77f720a8a0ca2ff51638 -->
+
+A direct HTTP download uses up to four verified byte-range connections when the source supports them. Torrent downloads use aria2. FFmpeg/FFprobe inspect local media and apply your selected output format; see **Local media and torrent downloads** below.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Supported HLS downloads accept finite, unencrypted MPEG-TS and fragmented MP4 playlists, including master playlists with embedded audio. Choose **Transfer** after reviewing the unknown size and 10 GB local limit, or **Give link** to use the original playlist in VLC or another app. The bot checks each destination and redirect, downloads segments without transcoding, and removes partial files if the download fails or exceeds the limit. Live, encrypted, byte-range and separate audio/subtitle playlists need manual handling. A completed file above 2 GB remains on the PC; smaller files enter the normal upload review. HLS with unknown size is excluded from Daily Uploads.
 
@@ -48,7 +127,19 @@ Supported HLS downloads accept finite, unencrypted MPEG-TS and fragmented MP4 pl
 
 <!-- coderabbit-ai-generated-section:v1:675c83f5183d875588f3d81796be3aa30c1a10896f4dcfcf12d1d4bf605fd0e8 -->
 
-For direct files, it stops if a source ignores the range.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:a506f5920b32e3efc6eb80b2c175efdfc089eb0201376485ed363211dd5ae582 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:9a48d70679783e1fea8457cd73f20092f3c455bf60d5dc5a283cfb2ac729692a -->
+
+Direct files must still pass the initial small-range check. If a signed GET link rejects HEAD, the bot checks an exact one-byte range and the expected size before downloading. If a server later ignores parallel ranges while returning the same strong validator, the bot retries with one connection and verifies that validator and the exact size. A changed or missing validator stops the retry.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 --> <!-- coderabbit-ai-generated:v1 -->
 
@@ -76,9 +167,21 @@ The MTProto uploader uses Telethon's standard uploader by default. An experiment
 
 <!-- coderabbit-ai-generated-section:v1:c1e59b9411bb3c153bf6f6bab780accf4529ece171cfb3015681456d2efe2204 -->
 
-Send `/start` to remove the old bottom keyboard and open the inline menu. Send a movie title in the private chat to search. Use **Admin management** to list, add or remove numeric Telegram user IDs; only the configured owner can change admins, and the list is stored in the database. Each admin must start a private chat with the bot.
+<!-- coderabbit-ai-generated:v1 -->
 
-Use **Start transfers** and **Stop transfers** to allow or block new downloads and uploads. The setting persists across restarts. One transfer runs at a time, and menus and searches remain usable during it. **Active transfers** shows and cancels the current transfer. A cancelled or failed upload may already be present on Telegram: inspect the destination before retrying. A running transfer finishes when transfers are switched off. Uploads still require individual approval.
+<!-- coderabbit-ai-generated-section:v1:22444b2b98b2fbf4c6319ce3ff37b0ec139aa707ce526b600302b63998355c5a -->
+
+When the bot starts, it sends “I'm Back” to the owner if Telegram permits messages to that chat. Send `/start` to remove the old bottom keyboard and open the inline menu.
+
+<!-- /coderabbit-ai-generated:v1 --> Send a movie title in the private chat to search. Use **Admin management** to list, add or remove numeric Telegram user IDs; only the configured owner can change admins, and the list is stored in the database. Each admin must start a private chat with the bot.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:6c27e94bd3cbfcb8417e853e89af7c062568d3bbc2c5680840d10c7d755e3ead -->
+
+Use **Start transfers** and **Stop transfers** to allow or block new downloads and uploads. The switch persists across restarts and lets already running transfers finish. Up to two downloads and two uploads can run at the same time; conversions use download slots. Additional transfers must wait for a slot. **Active transfers** and `/cancel` list individual tasks and offer cancellation. `/stop` cancels all active work and switches transfers and Daily Uploads off. A cancelled or failed upload may already be present on Telegram: inspect the destination before retrying. Uploads still require individual approval.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 --> <!-- coderabbit-ai-generated:v1 -->
 
@@ -88,7 +191,43 @@ Use **Start transfers** and **Stop transfers** to allow or block new downloads a
 
 <!-- coderabbit-ai-generated-section:v1:f26e2540ad2c961c498434d95274572fd001fe7026ac2251093998f39d287ea9 -->
 
-Menus reuse one temporary panel per admin. Pending searches, file checks and transfer status appear on the current panel as you navigate; search results load there or appear as a Results button if you have opened another menu. Saved links are paginated, and Upload approvals opens a compact list before showing the selected preview. Back restores the previous screen and its input prompt. After five minutes without interaction (checked every 15 seconds), temporary menu messages are deleted; active work delays cleanup. Movie cards, file confirmations, selected-destination notices and transfer outcomes are preserved. Telegram deletion failures fall back to removing the menu buttons. Cleanup tracks messages created during the current bot process; it does not scan or delete your chat history. Use /start to reopen the menu.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e26f8c6d35d64d3192c8c0f018e56715f10cbe75a2d43060f45230f481e64484 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:d3959e2ac821b81badff5e1cf986cb842cc0698f23ed2fe46a7b167475bbaff4 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:3ce28051ec55b804fb98cca91dbb9e63509c6827429e9172d68245dabe198c06 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:f362dec3c7caa0fd73ba2a9a73d93311fa8cd60c1e7af945d1e1a2616d4f69bf -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:64590d565ac56e34e169dd44c413dbcc8d88dd8fd37054205e0688a1b799c688 -->
+
+Each command or menu navigation sends a fresh menu at the bottom of the chat and removes the preceding menu where Telegram permits. Old menus and approval previews cannot be used after a newer screen replaces them. A new command or text message cancels that admin’s earlier temporary searches and file checks. `/cancel` offers individual and all-task cancellation; `/stop` cancels all work, including downloads and uploads. `/start` opens the menu and re-enables ordinary transfers after `/stop`. While navigating, pending checks and transfer status appear on the current menu, and search results load there or appear as a Results button. Background progress may update the current menu; download and upload progress messages are separate.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 --> <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:8b97c2928c19d25b4622281c5c2c13ece1a56ac627385af84906690977012118 -->
+
+Saved links are paginated, and Upload approvals opens a compact list before showing the selected preview. Back restores the previous screen and its input prompt, including a movie file list. After five minutes without interaction (checked every 15 seconds), temporary menu messages are deleted; active work delays cleanup. Transfer progress, upload reviews and outcomes remain separate. Telegram deletion failures fall back to removing the menu buttons. Cleanup tracks messages created during the current bot process; it does not scan or delete your chat history. Use /start to reopen the menu. A pasted manifest.json URL, or a manifest document with its original manifest URL in the caption, is saved as an add-on. A stream-only add-on still needs a searchable catalogue for movie names.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Migration is available from the menu and /migration; copying channel/group messages still awaits the source and destination workflow. Group management remains a placeholder. My channels lists channels and groups owned by the logged-in user where the bot is an administrator.
 
@@ -118,20 +257,21 @@ The bot gets IDs from your enabled catalogues and requires no IMDb or TMDB API k
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:37af6d3f829d88b466306caf3c7cbe6d34520b08cd79c263eda878f28cd661ab -->
+<!-- coderabbit-ai-generated-section:v1:1f397e57e3eb26837769c17e997ff8ac2d8b77b1a2fe8dbe75fe4977f3aa7e4c -->
 
-### Catalogue sources
+### Add-on sources
 
-Add a Stremio catalogue manifest through **Add-ons** and enable the sources you want to search. Movie and series metadata, including episode IDs, come from those enabled catalogues. No separate anime API is required.
+Only manifests you explicitly saved are queried. No extra catalogue or provider repository is installed automatically. Open **Add-ons → Catalogues / artwork sources** to see each saved catalogue, its media types, and whether it is enabled. Movie cards prefer `poster` over `background`, identify the metadata/artwork source, and fall back to a background only when no poster is supplied. Existing downloaded files and local settings are retained when upgrading; obsolete built-in API manifests and cached results are removed.
+
+
+
+<!-- /coderabbit-ai-generated:v1 --><!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:7d7e571d562c0f9b0b02992c051280822b2b9cff5d094affb096728e84ce8dde -->
+
+Availability depends on the selected catalogue supplying episode metadata and a source supporting that title. Downloads remain individually confirmed, with up to two downloads and two uploads concurrently; automatic whole-season queues are not implemented.
 
 <!-- /coderabbit-ai-generated:v1 -->
-
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 --> Availability depends on the selected catalogue supplying episode metadata and a source supporting that title. Downloads remain individually confirmed, one transfer at a time; automatic whole-season queues are not implemented.
 
 Download, upload, search, group management, migration and user session code are in separate modules.
 
@@ -163,7 +303,13 @@ One release is offered at a time. Only verified files strictly below 2,000,000,0
 
 <!-- coderabbit-ai-generated-section:v1:bf898b0397f1592d51a9d435a4fa2962be03b8da2f94724b62d06f0b88d44f61 -->
 
-Daily selections, skipped/no-file titles, title IDs and conservative title/year duplicate checks persist. The next release is checked after upload/skip; a catalogue scan with no candidates waits ten minutes. A failed or uncertain transfer is marked for attention and is never retried automatically. A pending release can be reopened or skipped from Daily Uploads after restart. At the daily quota the bot switches Transfers off; explicitly start another cycle on a later day. Stop transfers prevents new downloads/uploads; already running transfers can finish. Counts use UTC. This is an approval-driven cycle: it cannot publish 4–10 files without your approvals.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:24dbffeeaff85135c2a25b11446e5756eae7113726d9c8e741f00ffd6e9853c4 -->
+
+Daily selections, skipped/no-file titles, title IDs and conservative title/year duplicate checks persist. Daily Uploads offers **Cancel one** and **Cancel all daily**. Cancelling one daily item skips it and permits the next; an upload whose outcome is uncertain is marked for attention and is never automatically retried. Cancel all daily stops the daily cycle without cancelling unrelated manual transfers. A catalogue scan with no candidates waits ten minutes. At the daily quota the bot switches Transfers off; explicitly start another cycle later. Counts use UTC, and each Telegram upload still needs approval.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ### Source history
 
@@ -263,7 +409,13 @@ This foundation is not configured to start automatically with the PC. A publishe
 
 <!-- coderabbit-ai-generated-section:v1:e198d12a2f3c193d663be702e14d7a9f6edd2cfc5edad39072f4766472d23ddb -->
 
-Inline retrieval of already published Telegram files, migration, source refresh, torrent, DASH, encrypted and live HLS downloads, generic download-page extraction, automated error retries and channel availability monitoring are not implemented yet.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:b72e8a0edff6364e3d831d87b9b69b4c9ec8865fece4dbaafb8f2ae7ce3f1c31 -->
+
+Inline retrieval of already published Telegram files, migration, source refresh, DASH, encrypted and live HLS downloads, generic download-page extraction, automated error retries and channel availability monitoring are not implemented yet.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
 
@@ -293,12 +445,40 @@ Search can list HTTP links returned by providers; unsupported formats and files 
 Open **Add-ons** (or `/addons`) and send a Stremio catalogue manifest URL, or upload a JSON manifest and then provide its original URL so relative endpoints can be resolved.
 
 <!-- /coderabbit-ai-generated:v1 --> For example, Cinemeta: `https://v3-cinemeta.strem.io/manifest.json`. The catalogue must advertise a movie catalogue with a `search` extra. For Nuvio plugins, movie metadata must include `moviedb_id`, `tmdb_id`, or a `tmdb:` ID.
-3. Add a Nuvio repository URL in the same menu, or use **Add Yoru providers**. The supplied Yoru repository is loaded automatically on the first source lookup if no Nuvio repository has been saved. Manifests persist in the database. Provider scripts are fetched when looking up streams.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:9304663bb092ebef8e613278569cac528f89457713a3cc82df6e257804713427 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:63872f37b5f04c82a83d0dc2915f90f70026d19198608378b288555ca496923b -->
+
+3. **Add-ons** offers two built-in choices: **Add Yoru providers** and **Add HDHub**. Select one to save it; no preset is installed automatically. Add any other Stremio or Nuvio manifest yourself. Use each ON/OFF row and, for a provider repository, **Providers** to manage individual providers. Your individual choice persists, including when a provider was disabled by default in the manifest. Turning the repository OFF pauses all its providers while retaining their individual choices. Switches apply to new lookups.
+
+The status icon is separate from ON/OFF: 🟢 means the manifest was reachable; 🔴 reports an unavailable or invalid manifest, a failed search/file lookup, or no results from the last lookup; ⚪ means OFF or not yet checked. A source can return no results for one title while working for another. The row explains the reason; a stream-only add-on also says it has no title search. Manifest reachability does not verify every provider or media link. Status reports expire after 15 minutes, so old results return to unverified. Opening Add-ons checks enabled visible manifests in the background (at most four at a time, with an eight-second limit each). OFF sources are not checked automatically; **Check** or **Check manifests on this page** can check them explicitly without switching them ON. **Refresh manifest** checks and updates that saved manifest while preserving your ON/OFF choices; a failed refresh retains the previous configuration. An add-on may still need its own setup or be temporarily blocked.
+
+Only saved manifests are queried for searches. Manifests and switch choices persist in the local database. Provider scripts are fetched when looking up streams.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
 <!-- coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated-section:v1:8619b6da6c26c4ffaea9d24c3732550a9255337a3f2ce19ac84fd333b501d1d2 -->
 
-4. Send a movie name or `/search Insidious`. Select the correct movie; the bot checks sources concurrently and shows checked files as they become available, with landscape artwork where available. Source lookup uses at most four concurrent providers, a 30-second per-provider timeout and a 90-second overall timeout. Add-ons on the same host are queried one at a time. Manifest and movie metadata responses are cached in memory for 60 seconds; file availability and access are still checked before downloads. A size labelled unknown is rechecked before download. Search alone never downloads or uploads media.
+4. Send a movie name or `/search Insidious`. Select the correct movie; the bot checks sources concurrently and shows checked files as they become available, with landscape artwork where available. <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:9e3b091aa8baff5c9ac890ae34ed8e48e39a1d6d77e979bef7ef0390c8d5510a -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:fd21c95820dec32e9f3d7696b33727812b8512bd051fc150ce377b8d0c0118f6 -->
+
+Source lookup uses at most four concurrent providers, a 30-second timeout per provider, and a 90-second overall timeout.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 --> Add-ons on the same host are queried one at a time. Manifest and movie metadata responses are cached in memory for 60 seconds; file availability and access are still checked before downloads. A size labelled unknown is rechecked before download. Search alone never downloads or uploads media.
 
 <!-- /coderabbit-ai-generated:v1 -->
 5. <!-- coderabbit-ai-generated:v1 -->
